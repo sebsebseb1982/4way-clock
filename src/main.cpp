@@ -182,6 +182,7 @@ static void apply_mode(AppMode mode) {
     g_current_mode    = mode;
 
     tft.setRotation(rot);
+    touch_set_rotation(rot);
     tft.fillScreen(TFT_BLACK);
 
     bool landscape   = (rot % 2 == 1);
