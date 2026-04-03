@@ -8,6 +8,12 @@ static lv_obj_t *s_lbl_countdown  = nullptr;
 static lv_obj_t *s_btn_start      = nullptr;
 static lv_obj_t *s_lbl_start      = nullptr;
 
+void ui_countdown_reset_refs() {
+    s_lbl_countdown = nullptr;
+    s_btn_start = nullptr;
+    s_lbl_start = nullptr;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Countdown tick — background, always running in loop()
 // ─────────────────────────────────────────────────────────────────────────────

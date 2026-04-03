@@ -1,6 +1,9 @@
 #pragma once
 #include <time.h>
 
+// Clear module-held LVGL object pointers before rebuilding the screen.
+void ui_clock_reset_refs();
+
 // Build the clock UI on the active LVGL screen (landscape 320×240, rotation=1).
 // canvas_buf is allocated on first call and preserved across mode switches.
 void ui_clock_build();

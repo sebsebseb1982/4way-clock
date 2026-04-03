@@ -1,6 +1,9 @@
 #pragma once
 #include <stdint.h>
 
+// Clear module-held LVGL object pointers before rebuilding the screen.
+void ui_countdown_reset_refs();
+
 // Build the countdown UI on the active LVGL screen (landscape 320×240, rotation=3).
 void ui_countdown_build();
 

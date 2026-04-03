@@ -30,6 +30,15 @@ static lv_obj_t *s_lbl_wifi = nullptr;
 static lv_obj_t *s_lbl_ntp  = nullptr;
 static lv_obj_t *s_lbl_ip   = nullptr;
 
+void ui_clock_reset_refs() {
+    s_clock_canvas = nullptr;
+    s_lbl_time = nullptr;
+    s_lbl_date = nullptr;
+    s_lbl_wifi = nullptr;
+    s_lbl_ntp = nullptr;
+    s_lbl_ip = nullptr;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Hand drawing
 // ─────────────────────────────────────────────────────────────────────────────

@@ -66,6 +66,8 @@ static void initLVGL() {
     lv_disp_drv_init(&disp_drv);
     disp_drv.draw_buf = &draw_buf;
     disp_drv.flush_cb = cyd_disp_flush;
+    disp_drv.sw_rotate = 1;
+    disp_drv.rotated = LV_DISP_ROT_NONE;
     disp_drv.hor_res  = 320;
     disp_drv.ver_res  = 240;
     lv_disp_drv_register(&disp_drv);
@@ -157,12 +159,21 @@ static void initNTP() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Mode switch
 // ─────────────────────────────────────────────────────────────────────────────
-// Rotation mapping per mode
+// Hardware TFT rotation per mode.
+// MODE_COUNTDOWN intentionally stays on rotation=1 because this ST7789 panel
+// corrupts partial updates in hardware rotation=3 with the current offset setup.
 static const uint8_t MODE_ROTATION[4] = {
     1,  // MODE_CLOCK      → landscape 320×240
-    3,  // MODE_COUNTDOWN  → landscape inv 320×240
+    1,  // MODE_COUNTDOWN  → landscape 320×240 (LVGL applies 180° software rotation)
     0,  // MODE_C          → portrait 240×320
     2,  // MODE_D          → portrait inv 240×320
+};
+
+static const lv_disp_rot_t MODE_LVGL_ROTATION[4] = {
+    LV_DISP_ROT_NONE,
+    LV_DISP_ROT_180,
+    LV_DISP_ROT_NONE,
+    LV_DISP_ROT_NONE,
 };
 
 static void apply_mode(AppMode mode) {
@@ -176,8 +187,11 @@ static void apply_mode(AppMode mode) {
     bool landscape   = (rot % 2 == 1);
     disp_drv.hor_res = landscape ? 320 : 240;
     disp_drv.ver_res = landscape ? 240 : 320;
+    disp_drv.rotated = MODE_LVGL_ROTATION[mode];
     lv_disp_drv_update(lv_disp_get_default(), &disp_drv);
 
+    ui_clock_reset_refs();
+    ui_countdown_reset_refs();
     lv_obj_clean(lv_scr_act());
 
     switch (mode) {
