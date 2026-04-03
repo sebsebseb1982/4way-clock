@@ -129,7 +129,13 @@ static void initNTP() {
 }
 
 static bool isNtpSynced() {
-    return sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED;
+    // Le statut SNTP_SYNC_STATUS_COMPLETED est éphémère : il se réinitialise
+    // après chaque cycle de synchronisation. On le latte dès la première fois.
+    static bool _synced = false;
+    if (!_synced) {
+        _synced = sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED;
+    }
+    return _synced;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
