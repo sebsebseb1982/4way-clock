@@ -9,6 +9,20 @@ static lv_obj_t *s_lbl_start     = nullptr;
 
 static uint32_t s_last_tick_ms = 0;
 
+static void log_countdown_press(const char *name) {
+    lv_indev_t *indev = lv_indev_get_act();
+    if (indev == nullptr) {
+        Serial.printf("[Countdown] %s clicked indev=<null>\n", name);
+        return;
+    }
+
+    lv_point_t point;
+    lv_indev_get_point(indev, &point);
+    Serial.printf("[Countdown] %s clicked point=(%d,%d) remaining=%lu state=%d\n",
+                  name, point.x, point.y,
+                  (unsigned long)g_countdown_ms, (int)g_cd_state);
+}
+
 void ui_countdown_reset_refs() {
     s_lbl_countdown = nullptr;
     s_btn_start = nullptr;
@@ -49,9 +63,10 @@ static void refresh_start_label() {
 }
 
 static void cb_adj(lv_event_t *e) {
+    intptr_t delta_ms = (intptr_t)lv_event_get_user_data(e);
+    Serial.printf("[Countdown] ADJ clicked delta_ms=%ld\n", (long)delta_ms);
     if (g_cd_state == CD_RUNNING) return;
 
-    intptr_t delta_ms = (intptr_t)lv_event_get_user_data(e);
     if (delta_ms > 0) {
         g_countdown_ms += (uint32_t)delta_ms;
     } else {
@@ -68,6 +83,7 @@ static void cb_adj(lv_event_t *e) {
 
 static void cb_start(lv_event_t *e) {
     (void)e;
+    log_countdown_press("START");
     if (g_cd_state == CD_DONE) return;
     if (g_cd_state == CD_IDLE && g_countdown_ms == 0) return;
     g_cd_state = (g_cd_state == CD_RUNNING) ? CD_IDLE : CD_RUNNING;
@@ -76,6 +92,7 @@ static void cb_start(lv_event_t *e) {
 
 static void cb_reset(lv_event_t *e) {
     (void)e;
+    log_countdown_press("RESET");
     g_countdown_ms = 0;
     g_cd_state = CD_IDLE;
     if (s_lbl_countdown != nullptr) lv_label_set_text(s_lbl_countdown, "00:00:00");
