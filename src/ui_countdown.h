@@ -4,7 +4,7 @@
 // Clear module-held LVGL object pointers before rebuilding the screen.
 void ui_countdown_reset_refs();
 
-// Build the countdown UI on the active LVGL screen (landscape 320×240, rotation=3).
+// Build the countdown UI on the active LVGL screen (480x480, rotation depends on mode).
 void ui_countdown_build();
 
 // Update countdown display if MODE_COUNTDOWN is active.

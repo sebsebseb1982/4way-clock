@@ -125,50 +125,42 @@ void ui_countdown_build() {
     lv_obj_t *screen = lv_scr_act();
     lv_obj_set_style_bg_color(screen, lv_color_make(0, 0, 0), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(screen, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_scrollbar_mode(screen, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_clear_flag(screen, LV_OBJ_FLAG_SCROLLABLE);
 
-    lv_obj_t *panel = lv_obj_create(screen);
-    lv_obj_set_size(panel, 430, 330);
-    lv_obj_center(panel);
-    lv_obj_set_style_bg_color(panel, lv_color_make(12, 12, 12), LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(panel, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_border_color(panel, lv_color_make(70, 70, 70), LV_PART_MAIN);
-    lv_obj_set_style_border_width(panel, 2, LV_PART_MAIN);
-    lv_obj_set_style_radius(panel, 20, LV_PART_MAIN);
-    lv_obj_set_style_pad_all(panel, 0, LV_PART_MAIN);
-
-    lv_obj_t *lbl_title = lv_label_create(panel);
+    lv_obj_t *lbl_title = lv_label_create(screen);
     lv_obj_set_style_text_font(lbl_title, &lv_font_montserrat_18, LV_PART_MAIN);
     lv_obj_set_style_text_color(lbl_title, lv_color_make(150, 150, 150), LV_PART_MAIN);
-    lv_label_set_text(lbl_title, "COMPTE A REBOURS");
-    lv_obj_set_pos(lbl_title, 0, 10);
-    lv_obj_set_width(lbl_title, 430);
+    lv_label_set_text(lbl_title, "countdown");
+    lv_obj_set_pos(lbl_title, 0, 34);
+    lv_obj_set_width(lbl_title, 480);
     lv_obj_set_style_text_align(lbl_title, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
 
-    s_lbl_countdown = lv_label_create(panel);
-    lv_obj_set_style_text_font(s_lbl_countdown, &lv_font_montserrat_30, LV_PART_MAIN);
+    s_lbl_countdown = lv_label_create(screen);
+    lv_obj_set_style_text_font(s_lbl_countdown, &lv_font_montserrat_48, LV_PART_MAIN);
     lv_obj_set_style_text_color(s_lbl_countdown, lv_color_white(), LV_PART_MAIN);
     char buf[12];
     format_countdown(buf, sizeof(buf));
     lv_label_set_text(s_lbl_countdown, buf);
-    lv_obj_set_pos(s_lbl_countdown, 0, 40);
-    lv_obj_set_width(s_lbl_countdown, 430);
+    lv_obj_set_pos(s_lbl_countdown, 0, 86);
+    lv_obj_set_width(s_lbl_countdown, 480);
     lv_obj_set_style_text_align(s_lbl_countdown, LV_TEXT_ALIGN_CENTER, LV_PART_MAIN);
 
-    const lv_coord_t col_x[3] = { 20, 150, 280 };
-    const lv_coord_t btn_w = 130;
-    const lv_coord_t btn_h = 52;
+    const lv_coord_t col_x[3] = { 18, 166, 314 };
+    const lv_coord_t btn_w = 148;
+    const lv_coord_t btn_h = 64;
 
-    make_btn(panel, "+1h", col_x[0], 110, btn_w, btn_h, cb_adj, (void *)(3600000));
-    make_btn(panel, "+1m", col_x[1], 110, btn_w, btn_h, cb_adj, (void *)(60000));
-    make_btn(panel, "+1s", col_x[2], 110, btn_w, btn_h, cb_adj, (void *)(1000));
+    make_btn(screen, "+1h", col_x[0], 180, btn_w, btn_h, cb_adj, (void *)(3600000));
+    make_btn(screen, "+1m", col_x[1], 180, btn_w, btn_h, cb_adj, (void *)(60000));
+    make_btn(screen, "+1s", col_x[2], 180, btn_w, btn_h, cb_adj, (void *)(1000));
 
-    make_btn(panel, "-1h", col_x[0], 174, btn_w, btn_h, cb_adj, (void *)(-3600000));
-    make_btn(panel, "-1m", col_x[1], 174, btn_w, btn_h, cb_adj, (void *)(-60000));
-    make_btn(panel, "-1s", col_x[2], 174, btn_w, btn_h, cb_adj, (void *)(-1000));
+    make_btn(screen, "-1h", col_x[0], 260, btn_w, btn_h, cb_adj, (void *)(-3600000));
+    make_btn(screen, "-1m", col_x[1], 260, btn_w, btn_h, cb_adj, (void *)(-60000));
+    make_btn(screen, "-1s", col_x[2], 260, btn_w, btn_h, cb_adj, (void *)(-1000));
 
-    s_btn_start = lv_btn_create(panel);
-    lv_obj_set_size(s_btn_start, 190, 56);
-    lv_obj_set_pos(s_btn_start, 20, 248);
+    s_btn_start = lv_btn_create(screen);
+    lv_obj_set_size(s_btn_start, 212, 72);
+    lv_obj_set_pos(s_btn_start, 18, 360);
     lv_obj_set_style_bg_color(s_btn_start, lv_color_make(0, 100, 0), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_btn_start, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(s_btn_start, 10, LV_PART_MAIN);
@@ -180,9 +172,9 @@ void ui_countdown_build() {
     lv_obj_center(s_lbl_start);
     refresh_start_label();
 
-    lv_obj_t *btn_reset = lv_btn_create(panel);
-    lv_obj_set_size(btn_reset, 190, 56);
-    lv_obj_set_pos(btn_reset, 220, 248);
+    lv_obj_t *btn_reset = lv_btn_create(screen);
+    lv_obj_set_size(btn_reset, 212, 72);
+    lv_obj_set_pos(btn_reset, 250, 360);
     lv_obj_set_style_bg_color(btn_reset, lv_color_make(100, 0, 0), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(btn_reset, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_radius(btn_reset, 10, LV_PART_MAIN);
