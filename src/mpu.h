@@ -2,7 +2,7 @@
 #include <stdint.h>
 #include "app_mode.h"
 
-// Initialize MPU6050 on Wire bus (SDA=22, SCL=27).
+// Initialize MPU6500 on the shared Wire bus (SDA=19, SCL=45).
 // Returns true if device found and woken up successfully.
 bool mpu_init();
 

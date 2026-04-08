@@ -3,8 +3,11 @@
 #include <Arduino.h>
 
 #define MPU_ADDR  0x68
-#define MPU_SDA   22
-#define MPU_SCL   27
+#define MPU_SDA   19
+#define MPU_SCL   45
+
+// MPU6500 is wired on the board I2C bus exposed on GPIO19/GPIO45.
+// Using Wire keeps it compatible with the GT911 if both devices share the bus.
 
 // Debounce threshold
 #define ORIENT_THRESHOLD_G  0.7f
@@ -13,19 +16,23 @@
 static AppMode s_debounced_mode    = MODE_CLOCK;
 static AppMode s_candidate_mode    = MODE_CLOCK;
 static uint32_t s_candidate_since  = 0;
+static bool s_mpu_ready            = false;
 
 // ─────────────────────────────────────────────────────────────────────────────
 bool mpu_init() {
     Wire.begin(MPU_SDA, MPU_SCL);
+    Wire.setClock(400000);
 
-    // Wake up MPU6050 (clear sleep bit in PWR_MGMT_1)
+    // Wake up MPU6500/MPU6050-compatible IMU (clear sleep bit in PWR_MGMT_1).
     Wire.beginTransmission(MPU_ADDR);
-    Wire.write(0x6B);  // PWR_MGMT_1 register
-    Wire.write(0x00);  // wake up
+    Wire.write(0x6B);
+    Wire.write(0x00);
     uint8_t err = Wire.endTransmission(true);
 
     if (err != 0) {
-        Serial.printf("[MPU] ERREUR: MPU6050 non trouve sur 0x%02X (err=%d)\n", MPU_ADDR, err);
+        Serial.printf("[MPU] ERREUR: MPU6500 non trouve sur SDA=%d SCL=%d addr=0x%02X (err=%d)\n",
+                      MPU_SDA, MPU_SCL, MPU_ADDR, err);
+        s_mpu_ready = false;
         return false;
     }
 
@@ -33,9 +40,17 @@ bool mpu_init() {
     Wire.beginTransmission(MPU_ADDR);
     Wire.write(0x1C);
     Wire.write(0x00);
-    Wire.endTransmission(true);
+    if (Wire.endTransmission(true) != 0) {
+        Serial.println("[MPU] ERREUR: configuration ACCEL_CONFIG impossible");
+        s_mpu_ready = false;
+        return false;
+    }
 
-    Serial.printf("[MPU] MPU6050 initialise sur SDA=%d SCL=%d\n", MPU_SDA, MPU_SCL);
+    s_debounced_mode = MODE_CLOCK;
+    s_candidate_mode = MODE_CLOCK;
+    s_candidate_since = millis();
+    s_mpu_ready = true;
+    Serial.printf("[MPU] MPU6500 initialise sur Wire SDA=%d SCL=%d\n", MPU_SDA, MPU_SCL);
     return true;
 }
 
@@ -73,6 +88,8 @@ static AppMode detect_orientation(float ax, float ay) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 bool mpu_update(uint32_t now_ms) {
+    if (!s_mpu_ready) return false;
+
     float ax, ay;
     if (!mpu_read_accel(ax, ay)) return false;
 

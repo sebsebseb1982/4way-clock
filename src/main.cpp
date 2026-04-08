@@ -1,6 +1,6 @@
 #include <Arduino.h>
 #include <lvgl.h>
-#include <TFT_eSPI.h>
+#include <Arduino_GFX_Library.h>
 #include <WiFi.h>
 #include <time.h>
 #include <esp_sntp.h>
@@ -12,7 +12,7 @@
 #include "ui_countdown.h"
 #include "ui_stub.h"
 
-// 4way-display — ESP32 CYD, LVGL v8, MPU6050 orientation-driven multi-mode display
+// 4way-display — ESP32 CYD, LVGL v8, MPU6500 orientation-driven multi-mode display
 // Modes: Clock | Countdown | Mode C | Mode D
 
 // ── Shared globals (declared extern in app_mode.h) ────────────────────────────
@@ -21,68 +21,126 @@ uint32_t g_countdown_ms    = 0;
 CdState  g_cd_state        = CD_IDLE;
 AppMode  g_current_mode    = MODE_CLOCK;
 
-// ── Display ───────────────────────────────────────────────────────────────────
-TFT_eSPI tft = TFT_eSPI();
+// ── Display — ESP32-4848S040 : ST7701S via RGB parallel, backlight GPIO2 ────
+#define GFX_BL 38
+
+static Arduino_DataBus       *s_panel_init_bus = nullptr;
+static Arduino_ESP32RGBPanel *s_bus = nullptr;
+static Arduino_RGB_Display   *gfx   = nullptr;
 
 static lv_disp_draw_buf_t draw_buf;
-static lv_color_t         disp_buf[LV_HOR_RES_MAX * 10];
+static lv_color_t        *disp_buf = nullptr;   // allocated in PSRAM
 static lv_disp_drv_t      disp_drv;
+static uint32_t           s_flush_count = 0;
 
 #define LVGL_TICK_PERIOD_MS 1
 
-// ── LED (common-anode: active LOW) ────────────────────────────────────────────
-#define RED_LED_PIN   4
-#define GREEN_LED_PIN 16
-#define BLUE_LED_PIN  17
-#define RED_CH        0
-#define GREEN_CH      1
-#define BLUE_CH       2
-#define MAX_PWM       255
+// ── LED — GPIO4/16/17 are display data pins on ESP32-4848S040 ────────────────
+// No dedicated RGB LED; status is reported via Serial only.
+#define MAX_PWM 255  // kept for updateStatusLed signature compatibility
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Display flush
 // ─────────────────────────────────────────────────────────────────────────────
-static void cyd_disp_flush(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p) {
+static void s3_disp_flush(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p) {
     uint32_t w = area->x2 - area->x1 + 1;
     uint32_t h = area->y2 - area->y1 + 1;
-    tft.startWrite();
-    tft.setAddrWindow(area->x1, area->y1, w, h);
-    tft.pushColors((uint16_t *)color_p, w * h, true);
-    tft.endWrite();
+    if (s_flush_count < 5) {
+        Serial.printf("[LVGL] flush #%lu area=(%d,%d)-(%d,%d) size=%lux%lu buf=%p\n",
+                      (unsigned long)(s_flush_count + 1),
+                      area->x1, area->y1, area->x2, area->y2,
+                      (unsigned long)w, (unsigned long)h, color_p);
+    }
+    s_flush_count++;
+    gfx->draw16bitRGBBitmap(area->x1, area->y1, (uint16_t *)color_p, w, h);
     lv_disp_flush_ready(drv);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Hardware init
 // ─────────────────────────────────────────────────────────────────────────────
-static void turnOnBacklight() {
-    pinMode(21, OUTPUT);
-    digitalWrite(21, HIGH);
+static void initDisplay() {
+    Serial.println("[Display] initDisplay() start");
+
+    // Backlight on before RGB data flows to avoid a white flash
+    pinMode(GFX_BL, OUTPUT);
+    digitalWrite(GFX_BL, LOW);
+
+    // ── ST7701S serial init bus + RGB parallel bus — official 86BOX pinout ─
+    s_panel_init_bus = new Arduino_SWSPI(
+        GFX_NOT_DEFINED /* DC */, 39 /* CS */,
+        48 /* SCK */, 47 /* MOSI */, GFX_NOT_DEFINED /* MISO */
+    );
+
+    s_bus = new Arduino_ESP32RGBPanel(
+        18 /* DE */, 17 /* VSYNC */, 16 /* HSYNC */, 21 /* PCLK */,
+        11, 12, 13, 14, 0, /* R0-R4 */
+        8, 20, 3, 46, 9, 10, /* G0-G5 */
+        4, 5, 6, 7, 15, /* B0-B4 */
+        1 /* hsync_polarity */, 10 /* hsync_fp */, 8 /* hsync_pw */, 50 /* hsync_bp */,
+        1 /* vsync_polarity */, 10 /* vsync_fp */, 8 /* vsync_pw */, 20 /* vsync_bp */
+    );
+    gfx = new Arduino_RGB_Display(
+        480, 480, s_bus, 1 /* rotation */, true /* auto_flush */,
+        s_panel_init_bus, GFX_NOT_DEFINED /* RST */,
+        st7701_type9_init_operations, sizeof(st7701_type9_init_operations)
+    );
+    Serial.printf("[Display] init_bus=%p rgb_bus=%p gfx=%p bl=%d\n",
+                  s_panel_init_bus, s_bus, gfx, GFX_BL);
+    if (!gfx->begin()) {
+        Serial.println("[Display] ERREUR: gfx->begin() a echoue");
+    } else {
+        Serial.println("[Display] gfx->begin() OK");
+    }
+
+    Serial.println("[Display] test pattern direct RGB start");
+    gfx->fillScreen(BLACK);
+    gfx->fillRect(0,   0,   160, 160, RED);
+    gfx->fillRect(160, 0,   160, 160, GREEN);
+    gfx->fillRect(320, 0,   160, 160, BLUE);
+    gfx->fillRect(0,   160, 480, 160, WHITE);
+    gfx->fillRect(0,   320, 480, 160, BLACK);
+    delay(250);
+
+    gfx->fillScreen(BLACK);
+    digitalWrite(GFX_BL, HIGH);   // backlight on once frame is ready
+    Serial.println("[Display] backlight ON, screen cleared to black");
 }
 
 static void initLVGL() {
+    // Allocate LVGL draw buffer in PSRAM (1/10 frame = 480×48 pixels)
+    size_t buf_pixels = LVGL_DISPLAY_WIDTH * (LVGL_DISPLAY_HEIGHT / 10);
+    disp_buf = (lv_color_t *)heap_caps_malloc(buf_pixels * sizeof(lv_color_t), MALLOC_CAP_SPIRAM);
+    if (!disp_buf) {
+        Serial.println("[LVGL] ERREUR: allocation PSRAM echouee, repli sur SRAM");
+        static lv_color_t fallback[480 * 10];
+        disp_buf = fallback;
+        buf_pixels = 480 * 10;
+    }
+
+    Serial.printf("[LVGL] init start width=%d height=%d buf_pixels=%lu buf=%p\n",
+                  LVGL_DISPLAY_WIDTH, LVGL_DISPLAY_HEIGHT,
+                  (unsigned long)buf_pixels, disp_buf);
+
     lv_init();
-    lv_disp_draw_buf_init(&draw_buf, disp_buf, NULL, LV_HOR_RES_MAX * 10);
+    lv_disp_draw_buf_init(&draw_buf, disp_buf, NULL, buf_pixels);
     lv_disp_drv_init(&disp_drv);
     disp_drv.draw_buf = &draw_buf;
-    disp_drv.flush_cb = cyd_disp_flush;
+    disp_drv.flush_cb = s3_disp_flush;
     disp_drv.sw_rotate = 1;
-    disp_drv.rotated = LV_DISP_ROT_NONE;
-    disp_drv.hor_res  = 320;
-    disp_drv.ver_res  = 240;
-    lv_disp_drv_register(&disp_drv);
+    disp_drv.rotated   = LV_DISP_ROT_NONE;
+    disp_drv.hor_res   = LVGL_DISPLAY_WIDTH;
+    disp_drv.ver_res   = LVGL_DISPLAY_HEIGHT;
+    lv_disp_t *disp = lv_disp_drv_register(&disp_drv);
+    Serial.printf("[LVGL] display registered=%p sw_rotate=%d rotated=%d res=%dx%d\n",
+                  disp, disp_drv.sw_rotate, disp_drv.rotated,
+                  disp_drv.hor_res, disp_drv.ver_res);
+    Serial.println("[LVGL] init complete");
 }
 
 static void initLeds() {
-    ledcSetup(RED_CH,   5000, 8);
-    ledcSetup(GREEN_CH, 5000, 8);
-    ledcSetup(BLUE_CH,  5000, 8);
-    ledcAttachPin(RED_LED_PIN,   RED_CH);
-    ledcAttachPin(GREEN_LED_PIN, GREEN_CH);
-    ledcAttachPin(BLUE_LED_PIN,  BLUE_CH);
-    ledcWrite(RED_CH,   MAX_PWM);
-    ledcWrite(GREEN_CH, MAX_PWM);
-    ledcWrite(BLUE_CH,  MAX_PWM);
+    // No RGB LED on ESP32-4848S040 — GPIO4/16/17 are display data lines.
+    // LED status is reported via Serial output only.
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -95,9 +153,8 @@ bool isNtpSynced();
 // LED status
 // ─────────────────────────────────────────────────────────────────────────────
 static void setLedColor(bool red, bool green, bool blue) {
-    ledcWrite(RED_CH,   red   ? 0 : MAX_PWM);
-    ledcWrite(GREEN_CH, green ? 0 : MAX_PWM);
-    ledcWrite(BLUE_CH,  blue  ? 0 : MAX_PWM);
+    // No physical LED on ESP32-4848S040; no-op.
+    (void)red; (void)green; (void)blue;
 }
 
 static void updateStatusLed(uint32_t now_ms) {
@@ -159,35 +216,23 @@ static void initNTP() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Mode switch
 // ─────────────────────────────────────────────────────────────────────────────
-// Hardware TFT rotation per mode.
-// MODE_COUNTDOWN intentionally stays on rotation=1 because this ST7789 panel
-// corrupts partial updates in hardware rotation=3 with the current offset setup.
-static const uint8_t MODE_ROTATION[4] = {
-    1,  // MODE_CLOCK      → landscape 320×240
-    1,  // MODE_COUNTDOWN  → landscape 320×240 (LVGL applies 180° software rotation)
-    0,  // MODE_C          → portrait 240×320
-    2,  // MODE_D          → portrait inv 240×320
-};
-
+// Display is 480×480 (square): hor_res/ver_res are always 480 regardless of rotation.
+// Hardware TFT rotation is not needed; LVGL sw_rotate handles all orientations.
 static const lv_disp_rot_t MODE_LVGL_ROTATION[4] = {
-    LV_DISP_ROT_NONE,
-    LV_DISP_ROT_180,
-    LV_DISP_ROT_NONE,
-    LV_DISP_ROT_NONE,
+    LV_DISP_ROT_NONE,   // MODE_CLOCK
+    LV_DISP_ROT_180,    // MODE_COUNTDOWN (UI drawn for opposite face)
+    LV_DISP_ROT_270,    // MODE_C
+    LV_DISP_ROT_90,     // MODE_D
 };
 
 static void apply_mode(AppMode mode) {
-    uint8_t rot = MODE_ROTATION[mode];
-    g_active_rotation = rot;
+    Serial.printf("[Mode] apply_mode(%d) start\n", (int)mode);
+    g_active_rotation = (uint8_t)mode;   // used as rotation hint by touch
     g_current_mode    = mode;
 
-    tft.setRotation(rot);
-    touch_set_rotation(rot);
-    tft.fillScreen(TFT_BLACK);
+    touch_set_rotation((uint8_t)mode);
 
-    bool landscape   = (rot % 2 == 1);
-    disp_drv.hor_res = landscape ? 320 : 240;
-    disp_drv.ver_res = landscape ? 240 : 320;
+    // Square display — resolution stays 480×480 for every rotation
     disp_drv.rotated = MODE_LVGL_ROTATION[mode];
     lv_disp_drv_update(lv_disp_get_default(), &disp_drv);
 
@@ -201,8 +246,13 @@ static void apply_mode(AppMode mode) {
         case MODE_C:          ui_stub_build("Mode C");        break;
         case MODE_D:          ui_stub_build("Mode D");        break;
     }
+    Serial.printf("[Mode] screen=%p children=%u\n",
+                  lv_scr_act(), (unsigned)lv_obj_get_child_cnt(lv_scr_act()));
+    lv_obj_update_layout(lv_scr_act());
+    lv_obj_invalidate(lv_scr_act());
+    lv_refr_now(lv_disp_get_default());
     lv_timer_handler();
-    Serial.printf("[Mode] Switch -> mode=%d rotation=%d\n", (int)mode, rot);
+    Serial.printf("[Mode] Switch -> mode=%d rotation=%d\n", (int)mode, (int)MODE_LVGL_ROTATION[mode]);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -211,21 +261,25 @@ static void apply_mode(AppMode mode) {
 void setup() {
     Serial.begin(115200);
     delay(500);
+    Serial.println("[Setup] boot start");
 
-    turnOnBacklight();
+    initDisplay();   // RGB panel + backlight
+    Serial.println("[Setup] display init complete");
     initLeds();
     setLedColor(true, false, false);
 
-    tft.begin();
-    tft.setRotation(1);
-    tft.invertDisplay(INVERT_DISPLAY == 1);
-    tft.fillScreen(TFT_BLACK);
-
-    mpu_init();
+    if (!mpu_init()) {
+        Serial.println("[Setup] MPU indisponible - bascule d'orientation desactivee");
+    } else {
+        Serial.println("[Setup] MPU init complete");
+    }
 
     initLVGL();
+    Serial.println("[Setup] LVGL init complete");
     touch_init();
+    Serial.println("[Setup] touch init complete");
     apply_mode(MODE_CLOCK);
+    Serial.println("[Setup] MODE_CLOCK applied");
 
     bool wifiOk = initWifi();
     if (wifiOk) {
@@ -252,6 +306,8 @@ void loop() {
     static uint32_t prev_status = 0;
     static int      prev_sec    = -1;
     static bool     was_synced  = false;
+    static bool     logged_clock_tick = false;
+    static uint32_t prev_loop_log = 0;
 
     uint32_t now = millis();
 
@@ -265,7 +321,7 @@ void loop() {
     // ── Countdown background tick ──
     countdown_tick(now);
 
-    // ── Orientation / mode switch every ~50ms ──
+    // ── Orientation / mode switch via MPU6500 ──
     if (now - prev_mpu >= 50) {
         prev_mpu = now;
         if (mpu_update(now)) {
@@ -297,10 +353,27 @@ void loop() {
                       t->tm_hour, t->tm_min, t->tm_sec);
     }
 
+    if (now - prev_loop_log >= 5000) {
+        prev_loop_log = now;
+        Serial.printf("[loop] alive now=%lu mode=%d lvgl_rot=%d countdown_ms=%lu cd_state=%d heap=%lu psram=%lu\n",
+                      (unsigned long)now,
+                      (int)g_current_mode,
+                      (int)disp_drv.rotated,
+                      (unsigned long)g_countdown_ms,
+                      (int)g_cd_state,
+                      (unsigned long)ESP.getFreeHeap(),
+                      (unsigned long)ESP.getFreePsram());
+    }
+
     // ── Per-second UI update ──
     if (t->tm_sec != prev_sec) {
         prev_sec = t->tm_sec;
         if (g_current_mode == MODE_CLOCK) {
+            if (!logged_clock_tick) {
+                Serial.printf("[Clock] first loop update synced=%d time=%02d:%02d:%02d\n",
+                              (int)synced, t->tm_hour, t->tm_min, t->tm_sec);
+                logged_clock_tick = true;
+            }
             ui_clock_update(t, synced);
         } else if (g_current_mode == MODE_COUNTDOWN) {
             ui_countdown_update();
