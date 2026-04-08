@@ -39,6 +39,19 @@ static uint32_t           s_flush_count = 0;
 // No dedicated RGB LED; status is reported via Serial only.
 #define MAX_PWM 255  // kept for updateStatusLed signature compatibility
 
+// ── Buzzer — GPIO40, intermittent alarm for countdown completion ─────────────
+#define BUZZER_PIN 40
+#define BUZZER_PWM_CHANNEL 0
+#define BUZZER_FREQUENCY_HZ 1000
+#define BUZZER_ALERT_DURATION_MS 20000
+#define BUZZER_BEEP_ON_MS 400
+#define BUZZER_BEEP_OFF_MS 200
+
+static bool     s_buzzer_alert_active = false;
+static bool     s_buzzer_output_on    = false;
+static uint32_t s_buzzer_alert_start  = 0;
+static uint32_t s_buzzer_phase_start  = 0;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Display flush
 // ─────────────────────────────────────────────────────────────────────────────
@@ -141,6 +154,71 @@ static void initLVGL() {
 static void initLeds() {
     // No RGB LED on ESP32-4848S040 — GPIO4/16/17 are display data lines.
     // LED status is reported via Serial output only.
+}
+
+static void setBuzzerOutput(bool enabled) {
+    if (enabled == s_buzzer_output_on) return;
+
+    if (enabled) {
+        ledcWriteTone(BUZZER_PWM_CHANNEL, BUZZER_FREQUENCY_HZ);
+    } else {
+        ledcWriteTone(BUZZER_PWM_CHANNEL, 0);
+        digitalWrite(BUZZER_PIN, LOW);
+    }
+
+    s_buzzer_output_on = enabled;
+}
+
+static void stopBuzzerAlert() {
+    s_buzzer_alert_active = false;
+    s_buzzer_alert_start = 0;
+    s_buzzer_phase_start = 0;
+    setBuzzerOutput(false);
+}
+
+static void initBuzzer() {
+    pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, LOW);
+    ledcSetup(BUZZER_PWM_CHANNEL, BUZZER_FREQUENCY_HZ, 8);
+    ledcAttachPin(BUZZER_PIN, BUZZER_PWM_CHANNEL);
+    setBuzzerOutput(false);
+    Serial.printf("[Buzzer] init pin=%d channel=%d freq=%dHz\n",
+                  BUZZER_PIN, BUZZER_PWM_CHANNEL, BUZZER_FREQUENCY_HZ);
+}
+
+static void updateBuzzer(uint32_t now_ms) {
+    static CdState prev_cd_state = CD_IDLE;
+
+    if (g_cd_state == CD_DONE && prev_cd_state != CD_DONE) {
+        s_buzzer_alert_active = true;
+        s_buzzer_alert_start = now_ms;
+        s_buzzer_phase_start = now_ms;
+        setBuzzerOutput(true);
+        Serial.printf("[Buzzer] countdown complete, alarm started for %lu ms\n",
+                      (unsigned long)BUZZER_ALERT_DURATION_MS);
+    }
+    prev_cd_state = g_cd_state;
+
+    if (g_cd_state != CD_DONE) {
+        if (s_buzzer_alert_active || s_buzzer_output_on) {
+            stopBuzzerAlert();
+        }
+        return;
+    }
+
+    if (!s_buzzer_alert_active) return;
+
+    if (now_ms - s_buzzer_alert_start >= BUZZER_ALERT_DURATION_MS) {
+        stopBuzzerAlert();
+        Serial.println("[Buzzer] alarm finished");
+        return;
+    }
+
+    uint32_t phase_duration = s_buzzer_output_on ? BUZZER_BEEP_ON_MS : BUZZER_BEEP_OFF_MS;
+    if (now_ms - s_buzzer_phase_start >= phase_duration) {
+        s_buzzer_phase_start = now_ms;
+        setBuzzerOutput(!s_buzzer_output_on);
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,6 +344,7 @@ void setup() {
     initDisplay();   // RGB panel + backlight
     Serial.println("[Setup] display init complete");
     initLeds();
+    initBuzzer();
     setLedColor(true, false, false);
 
     if (!mpu_init()) {
@@ -320,6 +399,7 @@ void loop() {
 
     // ── Countdown background tick ──
     countdown_tick(now);
+    updateBuzzer(now);
 
     // ── Orientation / mode switch via MPU6500 ──
     if (now - prev_mpu >= 50) {
