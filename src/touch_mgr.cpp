@@ -137,7 +137,7 @@ static const char *mode_name(AppMode mode) {
     switch (mode) {
         case MODE_CLOCK:     return "CLOCK";
         case MODE_COUNTDOWN: return "COUNTDOWN";
-        case MODE_C:         return "C";
+        case MODE_WHEEL:     return "WHEEL";
         case MODE_D:         return "D";
         default:             return "?";
     }

@@ -82,7 +82,7 @@ static AppMode detect_orientation(float ax, float ay) {
     if (abs_ax >= abs_ay) {
         return (ax > 0) ? MODE_CLOCK : MODE_COUNTDOWN;
     } else {
-        return (ay > 0) ? MODE_C : MODE_D;
+        return (ay > 0) ? MODE_WHEEL : MODE_D;
     }
 }
 

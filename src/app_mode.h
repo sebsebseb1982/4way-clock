@@ -5,7 +5,7 @@
 typedef enum {
     MODE_CLOCK      = 0,   // bord droit posé  → paysage rotation=1
     MODE_COUNTDOWN  = 1,   // bord gauche posé → paysage rotation=3
-    MODE_C          = 2,   // bord haut posé   → portrait rotation=0
+    MODE_WHEEL      = 2,   // bord haut pose   -> wheel
     MODE_D          = 3,   // bord bas posé    → portrait rotation=2
 } AppMode;
 

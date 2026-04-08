@@ -10,11 +10,11 @@
 #include "touch_mgr.h"
 #include "ui_clock.h"
 #include "ui_countdown.h"
-#include "ui_mode_c.h"
+#include "ui_wheel.h"
 #include "ui_stub.h"
 
 // 4way-display — ESP32 CYD, LVGL v8, MPU6500 orientation-driven multi-mode display
-// Modes: Clock | Countdown | Mode C | Mode D
+// Modes: Clock | Countdown | Wheel | Mode D
 
 // ── Shared globals (declared extern in app_mode.h) ────────────────────────────
 uint8_t  g_active_rotation = 1;
@@ -325,7 +325,7 @@ static void initNTP() {
 static const lv_disp_rot_t MODE_LVGL_ROTATION[4] = {
     LV_DISP_ROT_NONE,   // MODE_CLOCK
     LV_DISP_ROT_180,    // MODE_COUNTDOWN (UI drawn for opposite face)
-    LV_DISP_ROT_270,    // MODE_C
+    LV_DISP_ROT_270,    // MODE_WHEEL
     LV_DISP_ROT_90,     // MODE_D
 };
 
@@ -342,13 +342,13 @@ static void apply_mode(AppMode mode) {
 
     ui_clock_reset_refs();
     ui_countdown_reset_refs();
-    ui_mode_c_reset_refs();
+    ui_wheel_reset_refs();
     lv_obj_clean(lv_scr_act());
 
     switch (mode) {
         case MODE_CLOCK:      ui_clock_build();               break;
         case MODE_COUNTDOWN:  ui_countdown_build();           break;
-        case MODE_C:          ui_mode_c_build();              break;
+        case MODE_WHEEL:      ui_wheel_build();               break;
         case MODE_D:          ui_stub_build("Mode D");        break;
     }
     Serial.printf("[Mode] screen=%p children=%u\n",
@@ -428,8 +428,8 @@ void loop() {
     countdown_tick(now);
     updateBuzzer(now);
 
-    if (g_current_mode == MODE_C) {
-        ui_mode_c_tick(now);
+    if (g_current_mode == MODE_WHEEL) {
+        ui_wheel_tick(now);
     }
 
     // ── Orientation / mode switch via MPU6500 ──
