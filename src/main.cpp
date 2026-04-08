@@ -10,6 +10,7 @@
 #include "touch_mgr.h"
 #include "ui_clock.h"
 #include "ui_countdown.h"
+#include "ui_mode_c.h"
 #include "ui_stub.h"
 
 // 4way-display — ESP32 CYD, LVGL v8, MPU6500 orientation-driven multi-mode display
@@ -43,14 +44,20 @@ static uint32_t           s_flush_count = 0;
 #define BUZZER_PIN 40
 #define BUZZER_PWM_CHANNEL 0
 #define BUZZER_FREQUENCY_HZ 1000
+#define BUZZER_NAV_TICK_FREQUENCY_HZ 1800
 #define BUZZER_ALERT_DURATION_MS 20000
 #define BUZZER_BEEP_ON_MS 400
 #define BUZZER_BEEP_OFF_MS 200
+#define BUZZER_NAV_TICK_MS 18
+#define BUZZER_NAV_TICK_GAP_MS 35
 
 static bool     s_buzzer_alert_active = false;
 static bool     s_buzzer_output_on    = false;
 static uint32_t s_buzzer_alert_start  = 0;
 static uint32_t s_buzzer_phase_start  = 0;
+static bool     s_buzzer_nav_tick_active = false;
+static uint32_t s_buzzer_nav_tick_start  = 0;
+static uint32_t s_buzzer_nav_tick_last   = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Display flush
@@ -169,11 +176,26 @@ static void setBuzzerOutput(bool enabled) {
     s_buzzer_output_on = enabled;
 }
 
+static void startBuzzerTone(uint32_t frequency_hz) {
+    ledcWriteTone(BUZZER_PWM_CHANNEL, frequency_hz);
+    s_buzzer_output_on = frequency_hz != 0;
+}
+
 static void stopBuzzerAlert() {
     s_buzzer_alert_active = false;
     s_buzzer_alert_start = 0;
     s_buzzer_phase_start = 0;
     setBuzzerOutput(false);
+}
+
+void buzzer_request_navigation_tick(uint32_t now_ms) {
+    if (s_buzzer_alert_active || g_cd_state == CD_DONE) return;
+    if (now_ms - s_buzzer_nav_tick_last < BUZZER_NAV_TICK_GAP_MS) return;
+
+    s_buzzer_nav_tick_last = now_ms;
+    s_buzzer_nav_tick_start = now_ms;
+    s_buzzer_nav_tick_active = true;
+    startBuzzerTone(BUZZER_NAV_TICK_FREQUENCY_HZ);
 }
 
 static void initBuzzer() {
@@ -190,6 +212,7 @@ static void updateBuzzer(uint32_t now_ms) {
     static CdState prev_cd_state = CD_IDLE;
 
     if (g_cd_state == CD_DONE && prev_cd_state != CD_DONE) {
+        s_buzzer_nav_tick_active = false;
         s_buzzer_alert_active = true;
         s_buzzer_alert_start = now_ms;
         s_buzzer_phase_start = now_ms;
@@ -199,25 +222,28 @@ static void updateBuzzer(uint32_t now_ms) {
     }
     prev_cd_state = g_cd_state;
 
-    if (g_cd_state != CD_DONE) {
-        if (s_buzzer_alert_active || s_buzzer_output_on) {
+    if (g_cd_state != CD_DONE && s_buzzer_alert_active) {
+        stopBuzzerAlert();
+    }
+
+    if (s_buzzer_alert_active) {
+        if (now_ms - s_buzzer_alert_start >= BUZZER_ALERT_DURATION_MS) {
             stopBuzzerAlert();
+            Serial.println("[Buzzer] alarm finished");
+            return;
+        }
+
+        uint32_t phase_duration = s_buzzer_output_on ? BUZZER_BEEP_ON_MS : BUZZER_BEEP_OFF_MS;
+        if (now_ms - s_buzzer_phase_start >= phase_duration) {
+            s_buzzer_phase_start = now_ms;
+            setBuzzerOutput(!s_buzzer_output_on);
         }
         return;
     }
 
-    if (!s_buzzer_alert_active) return;
-
-    if (now_ms - s_buzzer_alert_start >= BUZZER_ALERT_DURATION_MS) {
-        stopBuzzerAlert();
-        Serial.println("[Buzzer] alarm finished");
-        return;
-    }
-
-    uint32_t phase_duration = s_buzzer_output_on ? BUZZER_BEEP_ON_MS : BUZZER_BEEP_OFF_MS;
-    if (now_ms - s_buzzer_phase_start >= phase_duration) {
-        s_buzzer_phase_start = now_ms;
-        setBuzzerOutput(!s_buzzer_output_on);
+    if (s_buzzer_nav_tick_active && now_ms - s_buzzer_nav_tick_start >= BUZZER_NAV_TICK_MS) {
+        s_buzzer_nav_tick_active = false;
+        setBuzzerOutput(false);
     }
 }
 
@@ -316,12 +342,13 @@ static void apply_mode(AppMode mode) {
 
     ui_clock_reset_refs();
     ui_countdown_reset_refs();
+    ui_mode_c_reset_refs();
     lv_obj_clean(lv_scr_act());
 
     switch (mode) {
         case MODE_CLOCK:      ui_clock_build();               break;
         case MODE_COUNTDOWN:  ui_countdown_build();           break;
-        case MODE_C:          ui_stub_build("Mode C");        break;
+        case MODE_C:          ui_mode_c_build();              break;
         case MODE_D:          ui_stub_build("Mode D");        break;
     }
     Serial.printf("[Mode] screen=%p children=%u\n",
@@ -400,6 +427,10 @@ void loop() {
     // ── Countdown background tick ──
     countdown_tick(now);
     updateBuzzer(now);
+
+    if (g_current_mode == MODE_C) {
+        ui_mode_c_tick(now);
+    }
 
     // ── Orientation / mode switch via MPU6500 ──
     if (now - prev_mpu >= 50) {
